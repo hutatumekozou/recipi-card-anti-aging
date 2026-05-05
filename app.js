@@ -31,6 +31,28 @@ const els = {
 };
 
 const ctx = els.recipeCanvas.getContext("2d");
+const MAX_VISIBLE_STEPS = 10;
+
+function getStepLayout() {
+  const gridTop = 500;
+  const cardW = 542;
+  const cardH = 360;
+  const gap = 18;
+  const positions = Array.from({ length: MAX_VISIBLE_STEPS }, (_, index) => {
+    const col = index % 2;
+    const row = Math.floor(index / 2);
+    return [36 + col * (cardW + gap), gridTop + row * (cardH + gap)];
+  });
+
+  return {
+    gridTop,
+    cardW,
+    cardH,
+    gap,
+    positions,
+    bottom: gridTop + Math.ceil(MAX_VISIBLE_STEPS / 2) * cardH + (Math.ceil(MAX_VISIBLE_STEPS / 2) - 1) * gap,
+  };
+}
 
 function lines(value) {
   return value
@@ -326,7 +348,7 @@ function drawRecipe() {
   const width = canvas.width;
   const height = canvas.height;
   const recipe = getRecipe();
-  const steps = recipe.steps.slice(0, 6);
+  const steps = recipe.steps.slice(0, MAX_VISIBLE_STEPS);
   const ingredients = recipe.ingredients;
 
   ctx.clearRect(0, 0, width, height);
@@ -345,46 +367,25 @@ function drawRecipe() {
   drawInfoBox(36, 270, 680, 210, "材料", ingredients);
   drawSmallInfo(748, 270, 416, 210);
 
-  const gridTop = 500;
-  const cardW = 542;
-  const cardH = 190;
-  const gap = 18;
-  const positions = [
-    [36, gridTop],
-    [36 + cardW + gap, gridTop],
-    [36, gridTop + cardH + gap],
-    [36 + cardW + gap, gridTop + cardH + gap],
-    [36, gridTop + (cardH + gap) * 2],
-    [36 + cardW + gap, gridTop + (cardH + gap) * 2],
-  ];
+  const { cardW, cardH, positions, bottom } = getStepLayout();
 
-  steps.slice(0, 6).forEach((step, index) => {
+  steps.slice(0, MAX_VISIBLE_STEPS).forEach((step, index) => {
     const [x, y] = positions[index];
     drawStepCard(x, y, cardW, cardH, index + 1, step, state.assignments[index]);
   });
 
-  drawFinishCard(36, 1126, 496, 330, state.assignments[6] || state.assignments[steps.length - 1]);
-  drawTextPanel(568, 1126, 290, 330, "栄養", recipe.nutrition.join("\n"));
-  drawTextPanel(892, 1126, 272, 330, "日持ち", recipe.expiry);
+  const summaryY = bottom + 38;
+  drawFinishCard(36, summaryY, 496, 330, state.assignments[10] || state.assignments[steps.length - 1]);
+  drawTextPanel(568, summaryY, 290, 330, "栄養", recipe.nutrition.join("\n"));
+  drawTextPanel(892, summaryY, 272, 330, "日持ち", recipe.expiry);
   drawFooter(recipe);
   renderDropZones();
 }
 
 function getPreviewDropZones() {
   const recipe = getRecipe();
-  const steps = recipe.steps.slice(0, 6);
-  const gridTop = 500;
-  const cardW = 542;
-  const cardH = 190;
-  const gap = 18;
-  const positions = [
-    [36, gridTop],
-    [36 + cardW + gap, gridTop],
-    [36, gridTop + cardH + gap],
-    [36 + cardW + gap, gridTop + cardH + gap],
-    [36, gridTop + (cardH + gap) * 2],
-    [36 + cardW + gap, gridTop + (cardH + gap) * 2],
-  ];
+  const steps = recipe.steps.slice(0, MAX_VISIBLE_STEPS);
+  const { cardW, cardH, positions, bottom } = getStepLayout();
 
   const zones = steps.map((step, index) => ({
     assignmentIndex: index,
@@ -397,10 +398,11 @@ function getPreviewDropZones() {
 
   if (recipe.steps.length) {
     zones.push({
-      assignmentIndex: recipe.steps.length > 6 ? 6 : Math.max(recipe.steps.length - 1, 0),
+      assignmentIndex:
+        recipe.steps.length > MAX_VISIBLE_STEPS ? MAX_VISIBLE_STEPS : Math.max(recipe.steps.length - 1, 0),
       label: "できあがり",
       x: 36,
-      y: 1126,
+      y: bottom + 38,
       w: 496,
       h: 330,
     });
@@ -468,7 +470,7 @@ function assignFrameToPreviewZone(frameId, assignmentIndex) {
 function drawDecor() {
   ctx.strokeStyle = "#d8922c";
   ctx.lineWidth = 3;
-  roundRect(ctx, 8, 8, 1184, 1584, 24, false, true);
+  roundRect(ctx, 8, 8, 1184, 2904, 24, false, true);
 
   ctx.fillStyle = "#3f8d37";
   ctx.font = "700 26px system-ui";
@@ -546,12 +548,12 @@ function drawStepCard(x, y, w, h, number, title, frameId) {
   drawNumber(number, x + 52, y + 52);
   ctx.fillStyle = "#2b2118";
   ctx.textAlign = "left";
-  drawFitText(title, x + 100, y + 62, 30, w - 124, "900", "left");
+  drawFitText(title, x + 100, y + 58, 28, w - 124, "900", "left");
 
   const imageX = x + 24;
-  const imageY = y + 92;
+  const imageY = y + 104;
   const imageW = w - 48;
-  const imageH = h - 116;
+  const imageH = h - 132;
   drawFrameImage(findFrame(frameId), imageX, imageY, imageW, imageH, number);
 }
 
@@ -580,14 +582,14 @@ function drawTextPanel(x, y, w, h, title, text) {
 
 function drawFooter(recipe) {
   ctx.fillStyle = "#dfeecb";
-  roundRect(ctx, 24, 1506, 1152, 54, 18, true, false);
+  roundRect(ctx, 24, 2838, 1152, 54, 18, true, false);
   ctx.fillStyle = "#2b2118";
   ctx.textAlign = "left";
   ctx.font = "700 24px system-ui";
   const footerText = `${recipe.ingredients.length}材料 / ${recipe.steps.length}工程 / ${recipe.expiry}`;
-  ctx.fillText(footerText.slice(0, 54), 70, 1542);
+  ctx.fillText(footerText.slice(0, 54), 70, 2874);
   ctx.fillStyle = "#e86d1f";
-  ctx.fillText("♥", 1124, 1542);
+  ctx.fillText("♥", 1124, 2874);
 }
 
 function drawPill(x, y, w, h, text) {
