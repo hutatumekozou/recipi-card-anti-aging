@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>レシピ表メーカー</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <nav class="tabs" aria-label="画面切り替え">
+      <button class="tab-button active" type="button" data-tab="builder">レシピ作成</button>
+      <button class="tab-button" type="button" data-tab="cards">完成カード</button>
+    </nav>
+
+    <main id="builderTab" class="app tab-panel active">
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Recipe Sheet Maker</p>
+            <h1>料理動画から1枚のレシピ表を作成</h1>
+          </div>
+          <div class="actions">
+            <button id="downloadPng" type="button">PNG保存</button>
+            <button id="downloadJpg" type="button">JPG保存</button>
+          </div>
+        </header>
+
+        <section class="panel input-panel">
+          <div class="field grid-span">
+            <label for="videoInput">料理動画</label>
+            <input id="videoInput" type="file" accept="video/*" />
+          </div>
+          <div class="field">
+            <label for="intervalInput">抽出間隔</label>
+            <div class="inline">
+              <input id="intervalInput" type="number" min="1" max="20" value="4" />
+              <span>秒ごと</span>
+            </div>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="extractFrames" type="button">候補画像を抽出</button>
+          </div>
+        </section>
+
+        <section class="panel description-panel">
+          <div class="field">
+            <label for="descriptionInput">概要欄テキスト</label>
+            <textarea id="descriptionInput" rows="24">概要欄
+
+【材料】
+
+白菜・・・・・・・200g
+
+納豆・・・・・・・50g(1パック)
+
+鯖水煮缶・・・・・鯖の身90g
+
+鯖缶の汁・・・・・15g(大さじ1)
+
+酢・・・・・・・・15g(大さじ1)
+
+醤油・・・・・・・小さじ1/2
+
+焼き海苔・・・・・全形1枚
+
+黒胡椒・・・・・・お好み(20挽き程度)
+
+【作り方】
+
+1.白菜の葉をざく切りに、芯の部分はそぎ切りにする
+
+2.耐熱皿に入れ、ふんわりラップをかけ600Wで2分加熱する
+
+3.全体を混ぜ、さらに1分加熱する
+
+4.納豆を軽く混ぜ、酢、醤油と合わせる
+
+5.鯖缶の身と汁を４と合わせ、身をざっくりほぐすように混ぜる
+
+6.白菜の水分を軽く押す程度に切る
+
+7.5,6と黒胡椒、ちぎった焼き海苔を混ぜれば完成
+
+エネルギー　316kcal
+
+たんぱく質　33.3g
+
+脂質　16.5g
+
+糖質　6.2g
+
+食物繊維　8.4g
+
+賞味期限　冷蔵2日</textarea>
+          </div>
+        </section>
+
+        <section class="split">
+          <section class="panel">
+            <div class="panel-title">
+              <h2>候補画像</h2>
+              <span id="frameStatus">動画を選択してください</span>
+            </div>
+            <div id="frameGrid" class="frame-grid"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-title">
+              <h2>工程画像</h2>
+              <span>候補画像を選んで工程に割り当て</span>
+            </div>
+            <div id="stepAssignments" class="assignments"></div>
+          </section>
+        </section>
+      </section>
+
+      <aside class="preview-pane">
+        <div class="preview-header">
+          <div>
+            <h2>プレビュー</h2>
+            <span>候補画像を右の工程枠へドロップできます</span>
+          </div>
+          <div class="preview-actions">
+            <button id="refreshPreview" type="button">更新</button>
+          </div>
+        </div>
+        <div id="previewCanvasWrap" class="preview-canvas-wrap">
+          <canvas id="recipeCanvas" width="1200" height="1600"></canvas>
+          <div id="dropOverlay" class="drop-overlay" aria-hidden="true"></div>
+        </div>
+      </aside>
+    </main>
+
+    <main id="cardsTab" class="cards-page tab-panel" hidden>
+      <header class="topbar cards-topbar">
+        <div>
+          <p class="eyebrow">Completed Recipe Cards</p>
+          <h1>完成したレシピカードを保存</h1>
+        </div>
+      </header>
+
+      <section class="panel upload-panel">
+        <div class="field">
+          <label for="cardTitleInput">カード名</label>
+          <input id="cardTitleInput" type="text" placeholder="例：鯖納豆白菜" />
+        </div>
+        <div class="field">
+          <label for="cardImageInput">ChatGPTで作成した1枚画像</label>
+          <input id="cardImageInput" type="file" accept="image/png,image/jpeg,image/webp" />
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button id="saveCardImage" type="button">完成カードを追加</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">
+          <h2>保存済みカード</h2>
+          <span id="cardGalleryStatus">読み込み中...</span>
+        </div>
+        <div id="cardGallery" class="card-gallery"></div>
+      </section>
+    </main>
+
+    <video id="videoProbe" muted playsinline></video>
+    <canvas id="scratchCanvas"></canvas>
+    <script src="./app.js"></script>
+  </body>
+</html>
