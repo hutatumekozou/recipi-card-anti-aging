@@ -621,19 +621,22 @@ function drawFrameImage(frame, x, y, w, h, number) {
     ctx.save();
     roundRect(ctx, x, y, w, h, 12, false, false);
     ctx.clip();
-    coverImage(ctx, img, x, y, w, h);
+    containImage(ctx, img, x, y, w, h);
     ctx.restore();
   };
   img.src = frame?.dataUrl ?? placeholderDataUrl(number);
 }
 
-function coverImage(localCtx, img, x, y, w, h) {
-  const scale = Math.max(w / img.width, h / img.height);
-  const sw = w / scale;
-  const sh = h / scale;
-  const sx = (img.width - sw) / 2;
-  const sy = (img.height - sh) / 2;
-  localCtx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+function containImage(localCtx, img, x, y, w, h) {
+  localCtx.fillStyle = "#f1eadf";
+  localCtx.fillRect(x, y, w, h);
+
+  const scale = Math.min(w / img.width, h / img.height);
+  const drawW = img.width * scale;
+  const drawH = img.height * scale;
+  const drawX = x + (w - drawW) / 2;
+  const drawY = y + (h - drawH) / 2;
+  localCtx.drawImage(img, drawX, drawY, drawW, drawH);
 }
 
 function drawFitText(text, x, y, maxSize, maxWidth, weight = "700", align = "center") {
