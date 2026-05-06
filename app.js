@@ -35,6 +35,7 @@ const ctx = els.recipeCanvas.getContext("2d");
 const MAX_VISIBLE_STEPS = 10;
 const CARD_DB_NAME = "recipe-card-maker";
 const CARD_STORE_NAME = "completed-cards";
+const HIDDEN_BUNDLED_CARD_KEY = "hidden-bundled-recipe-cards";
 
 function getStepLayout() {
   const gridTop = 500;
@@ -787,6 +788,32 @@ function deleteCardRecord(cardId) {
   return withCardStore("readwrite", (store) => store.delete(cardId));
 }
 
+function getHiddenBundledCardIds() {
+  try {
+    return JSON.parse(localStorage.getItem(HIDDEN_BUNDLED_CARD_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function hideBundledCard(cardId) {
+  const hiddenIds = new Set(getHiddenBundledCardIds());
+  hiddenIds.add(cardId);
+  localStorage.setItem(HIDDEN_BUNDLED_CARD_KEY, JSON.stringify([...hiddenIds]));
+}
+
+async function getBundledCards() {
+  try {
+    const response = await fetch("/seed-cards.json", { cache: "no-store" });
+    if (!response.ok) return [];
+    const hiddenIds = new Set(getHiddenBundledCardIds());
+    const cards = await response.json();
+    return cards.filter((card) => !hiddenIds.has(card.id));
+  } catch {
+    return [];
+  }
+}
+
 async function saveCompletedCard() {
   const file = els.cardImageInput.files?.[0];
   if (!file) {
@@ -821,8 +848,12 @@ async function saveCompletedCard() {
 
 async function loadSavedCards() {
   try {
-    const cards = await getCardRecords();
-    renderCardGallery(cards.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+    const [bundledCards, localCards] = await Promise.all([getBundledCards(), getCardRecords()]);
+    const cardMap = new Map();
+    bundledCards.forEach((card) => cardMap.set(card.id, card));
+    localCards.forEach((card) => cardMap.set(card.id, card));
+    const cards = [...cardMap.values()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    renderCardGallery(cards);
   } catch (error) {
     els.cardGalleryStatus.textContent = error.message;
   }
@@ -842,14 +873,15 @@ function renderCardGallery(cards) {
   cards.forEach((card) => {
     const item = document.createElement("article");
     item.className = "saved-card";
+    const imageSrc = card.image || card.url;
     item.innerHTML = `
-      <img src="${card.image}" alt="${escapeHtml(card.title)}">
+      <img src="${imageSrc}" alt="${escapeHtml(card.title)}">
       <div class="saved-card-body">
         <h3>${escapeHtml(card.title)}</h3>
         <div class="saved-card-meta">${new Date(card.createdAt).toLocaleString("ja-JP")}</div>
         <div class="saved-card-actions">
-          <a href="${card.image}" download="${escapeFilename(card.title)}">保存</a>
-          <button type="button" data-delete-card="${card.id}">削除</button>
+          <a href="${imageSrc}" download="${escapeFilename(card.title)}">保存</a>
+          <button type="button" data-delete-card="${card.id}" data-bundled="${card.bundled ? "true" : "false"}">削除</button>
         </div>
       </div>
     `;
@@ -860,7 +892,12 @@ function renderCardGallery(cards) {
 async function deleteCompletedCard(cardId) {
   if (!confirm("この完成カードを削除しますか？")) return;
   try {
-    await deleteCardRecord(cardId);
+    const bundledCardIds = new Set((await getBundledCards()).map((card) => card.id));
+    if (bundledCardIds.has(cardId)) {
+      hideBundledCard(cardId);
+    } else {
+      await deleteCardRecord(cardId);
+    }
     await loadSavedCards();
   } catch (error) {
     els.cardGalleryStatus.textContent = error.message;
