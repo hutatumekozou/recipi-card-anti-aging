@@ -27,6 +27,11 @@ body {
     sans-serif;
 }
 
+html,
+body {
+  min-height: 100%;
+}
+
 .tabs {
   display: flex;
   gap: 8px;
@@ -145,6 +150,14 @@ h2 {
 
 .actions button:last-child {
   background: var(--orange);
+}
+
+.reset-button {
+  background: #786a5a;
+}
+
+.reset-button:hover {
+  background: #5f5245;
 }
 
 .panel {
@@ -292,8 +305,6 @@ h2 {
 }
 
 .preview-pane {
-  position: sticky;
-  top: 20px;
   align-self: start;
 }
 
@@ -483,6 +494,46 @@ h2 {
 
   .preview-pane {
     position: static;
+  }
+}
+
+@media (min-width: 1021px) {
+  body {
+    overflow: hidden;
+  }
+
+  .app {
+    height: calc(100vh - 60px);
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .workspace,
+  .preview-pane {
+    min-height: 0;
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 8px;
+  }
+
+  .preview-pane {
+    align-self: stretch;
+  }
+
+  .preview-header {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    border-bottom: 1px solid rgba(222, 211, 192, 0.75);
+    background: rgba(245, 242, 233, 0.96);
+    padding-bottom: 10px;
+  }
+
+  .cards-page {
+    height: calc(100vh - 60px);
+    min-height: 0;
+    overflow-y: auto;
   }
 }
 

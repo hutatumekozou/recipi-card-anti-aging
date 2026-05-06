@@ -20,6 +20,7 @@ const els = {
   previewCanvasWrap: document.querySelector("#previewCanvasWrap"),
   dropOverlay: document.querySelector("#dropOverlay"),
   descriptionInput: document.querySelector("#descriptionInput"),
+  resetBuilder: document.querySelector("#resetBuilder"),
   refreshPreview: document.querySelector("#refreshPreview"),
   downloadPng: document.querySelector("#downloadPng"),
   downloadJpg: document.querySelector("#downloadJpg"),
@@ -32,6 +33,8 @@ const els = {
 
 const ctx = els.recipeCanvas.getContext("2d");
 const MAX_VISIBLE_STEPS = 10;
+const CARD_DB_NAME = "recipe-card-maker";
+const CARD_STORE_NAME = "completed-cards";
 
 function getStepLayout() {
   const gridTop = 500;
@@ -700,6 +703,25 @@ function downloadImage(type) {
   }, 150);
 }
 
+function resetBuilderInputs() {
+  if (!confirm("レシピ作成画面の入力内容と候補画像をリセットしますか？")) return;
+
+  state.frames = [];
+  state.selectedFrameId = null;
+  state.assignments = [];
+  els.videoInput.value = "";
+  els.intervalInput.value = "4";
+  els.descriptionInput.value = "";
+  els.videoProbe.removeAttribute("src");
+  els.videoProbe.load();
+  els.frameStatus.textContent = "動画を選択してください";
+  els.dropOverlay.innerHTML = "";
+  els.previewCanvasWrap.classList.remove("drag-active");
+  renderFrames();
+  renderAssignments();
+  drawRecipe();
+}
+
 function switchTab(tabName) {
   const isCards = tabName === "cards";
   els.builderTab.hidden = isCards;
@@ -723,6 +745,48 @@ function readFileAsDataUrl(file) {
   });
 }
 
+function openCardDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(CARD_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(CARD_STORE_NAME)) {
+        db.createObjectStore(CARD_STORE_NAME, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(new Error("完成カード保存用DBを開けませんでした"));
+  });
+}
+
+async function withCardStore(mode, callback) {
+  const db = await openCardDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(CARD_STORE_NAME, mode);
+    const store = transaction.objectStore(CARD_STORE_NAME);
+    const request = callback(store);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(new Error("完成カードの保存処理に失敗しました"));
+    transaction.oncomplete = () => db.close();
+    transaction.onerror = () => {
+      db.close();
+      reject(new Error("完成カードの保存処理に失敗しました"));
+    };
+  });
+}
+
+function addCardRecord(card) {
+  return withCardStore("readwrite", (store) => store.add(card));
+}
+
+function getCardRecords() {
+  return withCardStore("readonly", (store) => store.getAll());
+}
+
+function deleteCardRecord(cardId) {
+  return withCardStore("readwrite", (store) => store.delete(cardId));
+}
+
 async function saveCompletedCard() {
   const file = els.cardImageInput.files?.[0];
   if (!file) {
@@ -737,17 +801,12 @@ async function saveCompletedCard() {
   try {
     const image = await readFileAsDataUrl(file);
     const title = els.cardTitleInput.value.trim() || file.name.replace(/\.[^.]+$/, "");
-    const response = await fetch("/api/cards", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ title, image }),
+    await addCardRecord({
+      id: crypto.randomUUID(),
+      title,
+      image,
+      createdAt: new Date().toISOString(),
     });
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.error || "保存に失敗しました");
-    }
 
     els.cardTitleInput.value = "";
     els.cardImageInput.value = "";
@@ -762,12 +821,8 @@ async function saveCompletedCard() {
 
 async function loadSavedCards() {
   try {
-    const response = await fetch("/api/cards");
-    const cards = await response.json();
-    if (!response.ok) {
-      throw new Error(cards.error || "保存済みカードを読み込めませんでした");
-    }
-    renderCardGallery(cards);
+    const cards = await getCardRecords();
+    renderCardGallery(cards.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
   } catch (error) {
     els.cardGalleryStatus.textContent = error.message;
   }
@@ -788,12 +843,12 @@ function renderCardGallery(cards) {
     const item = document.createElement("article");
     item.className = "saved-card";
     item.innerHTML = `
-      <img src="${card.url}" alt="${escapeHtml(card.title)}">
+      <img src="${card.image}" alt="${escapeHtml(card.title)}">
       <div class="saved-card-body">
         <h3>${escapeHtml(card.title)}</h3>
         <div class="saved-card-meta">${new Date(card.createdAt).toLocaleString("ja-JP")}</div>
         <div class="saved-card-actions">
-          <a href="${card.url}" download="${escapeFilename(card.title)}">保存</a>
+          <a href="${card.image}" download="${escapeFilename(card.title)}">保存</a>
           <button type="button" data-delete-card="${card.id}">削除</button>
         </div>
       </div>
@@ -804,15 +859,12 @@ function renderCardGallery(cards) {
 
 async function deleteCompletedCard(cardId) {
   if (!confirm("この完成カードを削除しますか？")) return;
-  const response = await fetch(`/api/cards/${encodeURIComponent(cardId)}`, {
-    method: "DELETE",
-  });
-  const result = await response.json();
-  if (!response.ok) {
-    els.cardGalleryStatus.textContent = result.error || "削除に失敗しました";
-    return;
+  try {
+    await deleteCardRecord(cardId);
+    await loadSavedCards();
+  } catch (error) {
+    els.cardGalleryStatus.textContent = error.message;
   }
-  await loadSavedCards();
 }
 
 function escapeHtml(value) {
@@ -840,6 +892,7 @@ els.tabButtons.forEach((button) => {
   button.addEventListener("click", () => switchTab(button.dataset.tab));
 });
 els.extractFrames.addEventListener("click", extractFrames);
+els.resetBuilder.addEventListener("click", resetBuilderInputs);
 els.refreshPreview.addEventListener("click", drawRecipe);
 els.downloadPng.addEventListener("click", () => downloadImage("image/png"));
 els.downloadJpg.addEventListener("click", () => downloadImage("image/jpeg"));
