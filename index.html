@@ -8,12 +8,11 @@
   </head>
   <body>
     <nav class="tabs" aria-label="画面切り替え">
-      <button class="tab-button active" type="button" data-tab="builder">レシピ作成</button>
-      <button class="tab-button" type="button" data-tab="cards">完成カード</button>
+      <button class="tab-button active" type="button" data-tab="cards">完成カード</button>
       <button class="tab-button" type="button" data-tab="cropper">スクショ作成</button>
     </nav>
 
-    <main id="builderTab" class="app tab-panel active">
+    <main id="builderTab" class="app tab-panel" hidden>
       <section class="workspace">
         <header class="topbar">
           <div>
@@ -134,7 +133,7 @@
       </aside>
     </main>
 
-    <main id="cardsTab" class="cards-page tab-panel" hidden>
+    <main id="cardsTab" class="cards-page tab-panel active">
       <header class="topbar cards-topbar">
         <div>
           <p class="eyebrow">Completed Recipe Cards</p>
