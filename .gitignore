@@ -1,2 +1,4 @@
 data/*.json
 uploads/cards/*
+.vercel
+.env*.local

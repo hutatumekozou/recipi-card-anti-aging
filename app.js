@@ -2,12 +2,19 @@ const state = {
   frames: [],
   selectedFrameId: null,
   assignments: [],
+  cropVideoUrl: "",
+  cropSelection: null,
+  cropImages: [],
+  cropPage: 0,
+  isSelectingCrop: false,
+  cropDragStart: null,
 };
 
 const els = {
   tabButtons: document.querySelectorAll(".tab-button"),
   builderTab: document.querySelector("#builderTab"),
   cardsTab: document.querySelector("#cardsTab"),
+  cropperTab: document.querySelector("#cropperTab"),
   videoInput: document.querySelector("#videoInput"),
   extractFrames: document.querySelector("#extractFrames"),
   intervalInput: document.querySelector("#intervalInput"),
@@ -26,9 +33,23 @@ const els = {
   downloadJpg: document.querySelector("#downloadJpg"),
   cardTitleInput: document.querySelector("#cardTitleInput"),
   cardImageInput: document.querySelector("#cardImageInput"),
+  lastCookedInput: document.querySelector("#lastCookedInput"),
   saveCardImage: document.querySelector("#saveCardImage"),
   cardGallery: document.querySelector("#cardGallery"),
   cardGalleryStatus: document.querySelector("#cardGalleryStatus"),
+  cropVideoInput: document.querySelector("#cropVideoInput"),
+  cropIntervalInput: document.querySelector("#cropIntervalInput"),
+  generateCrops: document.querySelector("#generateCrops"),
+  resetCropper: document.querySelector("#resetCropper"),
+  cropStatus: document.querySelector("#cropStatus"),
+  cropPreviewWrap: document.querySelector("#cropPreviewWrap"),
+  cropPreviewCanvas: document.querySelector("#cropPreviewCanvas"),
+  cropSelection: document.querySelector("#cropSelection"),
+  cropVideoProbe: document.querySelector("#cropVideoProbe"),
+  cropWorkCanvas: document.querySelector("#cropWorkCanvas"),
+  cropPageStatus: document.querySelector("#cropPageStatus"),
+  cropPager: document.querySelector("#cropPager"),
+  cropPages: document.querySelector("#cropPages"),
 };
 
 const ctx = els.recipeCanvas.getContext("2d");
@@ -725,13 +746,17 @@ function resetBuilderInputs() {
 
 function switchTab(tabName) {
   const isCards = tabName === "cards";
-  els.builderTab.hidden = isCards;
+  const isCropper = tabName === "cropper";
+  els.builderTab.hidden = isCards || isCropper;
   els.cardsTab.hidden = !isCards;
+  els.cropperTab.hidden = !isCropper;
   els.tabButtons.forEach((button) => {
     button.classList.toggle("active", button.dataset.tab === tabName);
   });
   if (isCards) {
     loadSavedCards();
+  } else if (isCropper) {
+    drawCropPreview();
   } else {
     renderDropZones();
   }
@@ -778,6 +803,10 @@ async function withCardStore(mode, callback) {
 
 function addCardRecord(card) {
   return withCardStore("readwrite", (store) => store.add(card));
+}
+
+function putCardRecord(card) {
+  return withCardStore("readwrite", (store) => store.put(card));
 }
 
 function getCardRecords() {
@@ -832,11 +861,13 @@ async function saveCompletedCard() {
       id: crypto.randomUUID(),
       title,
       image,
+      lastCookedAt: els.lastCookedInput.value,
       createdAt: new Date().toISOString(),
     });
 
     els.cardTitleInput.value = "";
     els.cardImageInput.value = "";
+    els.lastCookedInput.value = "";
     await loadSavedCards();
   } catch (error) {
     els.cardGalleryStatus.textContent = error.message;
@@ -879,6 +910,10 @@ function renderCardGallery(cards) {
       <div class="saved-card-body">
         <h3>${escapeHtml(card.title)}</h3>
         <div class="saved-card-meta">${new Date(card.createdAt).toLocaleString("ja-JP")}</div>
+        <div class="last-cooked-field">
+          <label for="last-cooked-${card.id}">最後に調理した日</label>
+          <input id="last-cooked-${card.id}" type="date" value="${card.lastCookedAt || ""}" data-last-cooked-card="${card.id}">
+        </div>
         <div class="saved-card-actions">
           <a href="${imageSrc}" download="${escapeFilename(card.title)}">保存</a>
           <button type="button" data-delete-card="${card.id}" data-bundled="${card.bundled ? "true" : "false"}">削除</button>
@@ -904,6 +939,31 @@ async function deleteCompletedCard(cardId) {
   }
 }
 
+async function updateLastCookedDate(cardId, lastCookedAt) {
+  try {
+    const [bundledCards, localCards] = await Promise.all([getBundledCards(), getCardRecords()]);
+    const localCard = localCards.find((card) => card.id === cardId);
+    if (localCard) {
+      await putCardRecord({ ...localCard, lastCookedAt });
+      await loadSavedCards();
+      return;
+    }
+
+    const bundledCard = bundledCards.find((card) => card.id === cardId);
+    if (!bundledCard) return;
+
+    await putCardRecord({
+      ...bundledCard,
+      image: bundledCard.url,
+      lastCookedAt,
+      bundled: false,
+    });
+    await loadSavedCards();
+  } catch (error) {
+    els.cardGalleryStatus.textContent = error.message;
+  }
+}
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => {
     return {
@@ -919,6 +979,280 @@ function escapeHtml(value) {
 function escapeFilename(value) {
   const safeName = String(value).replace(/[\\/:*?"<>|]/g, "_").trim() || "recipe-card";
   return `${safeName}.png`;
+}
+
+function setCropStatus(message) {
+  els.cropStatus.textContent = message;
+}
+
+function getCropCanvasPoint(event) {
+  const rect = els.cropPreviewCanvas.getBoundingClientRect();
+  const x = ((event.clientX - rect.left) / rect.width) * els.cropPreviewCanvas.width;
+  const y = ((event.clientY - rect.top) / rect.height) * els.cropPreviewCanvas.height;
+  return {
+    x: Math.min(Math.max(x, 0), els.cropPreviewCanvas.width),
+    y: Math.min(Math.max(y, 0), els.cropPreviewCanvas.height),
+  };
+}
+
+function normalizeCropSelection(start, end) {
+  const x = Math.min(start.x, end.x);
+  const y = Math.min(start.y, end.y);
+  return {
+    x,
+    y,
+    width: Math.abs(end.x - start.x),
+    height: Math.abs(end.y - start.y),
+  };
+}
+
+function updateCropSelectionElement() {
+  const selection = state.cropSelection;
+  if (!selection || selection.width < 4 || selection.height < 4) {
+    els.cropSelection.hidden = true;
+    return;
+  }
+
+  const scaleX = els.cropPreviewCanvas.clientWidth / els.cropPreviewCanvas.width;
+  const scaleY = els.cropPreviewCanvas.clientHeight / els.cropPreviewCanvas.height;
+  els.cropSelection.hidden = false;
+  els.cropSelection.style.left = `${selection.x * scaleX}px`;
+  els.cropSelection.style.top = `${selection.y * scaleY}px`;
+  els.cropSelection.style.width = `${selection.width * scaleX}px`;
+  els.cropSelection.style.height = `${selection.height * scaleY}px`;
+}
+
+function drawCropPreview() {
+  const video = els.cropVideoProbe;
+  if (!video.videoWidth || !video.videoHeight) return;
+  const canvas = els.cropPreviewCanvas;
+  const localCtx = canvas.getContext("2d");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  localCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  updateCropSelectionElement();
+}
+
+async function loadCropVideo() {
+  const file = els.cropVideoInput.files?.[0];
+  if (!file) return;
+
+  if (state.cropVideoUrl) {
+    URL.revokeObjectURL(state.cropVideoUrl);
+  }
+  state.cropVideoUrl = URL.createObjectURL(file);
+  state.cropSelection = null;
+  state.cropImages = [];
+  state.cropPage = 0;
+  renderCropPages();
+
+  const video = els.cropVideoProbe;
+  video.src = state.cropVideoUrl;
+  video.load();
+  setCropStatus("動画を読み込み中...");
+
+  try {
+    await waitForVideoEvent(video, "loadedmetadata");
+    await seekVideo(video, 0);
+    drawCropPreview();
+    setCropStatus("切り抜きたい範囲をドラッグで囲んでください");
+  } catch (error) {
+    setCropStatus(error.message);
+  }
+}
+
+function startCropSelection(event) {
+  if (!els.cropVideoProbe.videoWidth) return;
+  state.isSelectingCrop = true;
+  state.cropDragStart = getCropCanvasPoint(event);
+  state.cropSelection = { x: state.cropDragStart.x, y: state.cropDragStart.y, width: 0, height: 0 };
+  updateCropSelectionElement();
+}
+
+function moveCropSelection(event) {
+  if (!state.isSelectingCrop || !state.cropDragStart) return;
+  state.cropSelection = normalizeCropSelection(state.cropDragStart, getCropCanvasPoint(event));
+  updateCropSelectionElement();
+}
+
+function finishCropSelection() {
+  if (!state.isSelectingCrop) return;
+  state.isSelectingCrop = false;
+  state.cropDragStart = null;
+  if (!state.cropSelection || state.cropSelection.width < 8 || state.cropSelection.height < 8) {
+    state.cropSelection = null;
+    setCropStatus("範囲が小さすぎます。もう一度ドラッグしてください");
+  } else {
+    setCropStatus(
+      `選択範囲 ${Math.round(state.cropSelection.width)} x ${Math.round(state.cropSelection.height)} px`,
+    );
+  }
+  updateCropSelectionElement();
+}
+
+async function generateCropImages() {
+  const video = els.cropVideoProbe;
+  if (!video.videoWidth) {
+    setCropStatus("先に動画を選択してください");
+    return;
+  }
+  if (!state.cropSelection) {
+    setCropStatus("先に切り抜きたい範囲を囲んでください");
+    return;
+  }
+
+  const interval = Math.max(1, Number(els.cropIntervalInput.value) || 4);
+  const duration = video.duration || 0;
+  const times = [];
+  for (let t = 0; t < duration; t += interval) {
+    times.push(t);
+  }
+  if (duration > 0.5 && times[times.length - 1] < duration - 0.5) {
+    times.push(Math.max(duration - 0.2, 0));
+  }
+
+  const selection = state.cropSelection;
+  const workCanvas = els.cropWorkCanvas;
+  const workCtx = workCanvas.getContext("2d");
+  workCanvas.width = Math.round(selection.width);
+  workCanvas.height = Math.round(selection.height);
+  state.cropImages = [];
+  state.cropPage = 0;
+  els.generateCrops.disabled = true;
+
+  try {
+    for (let index = 0; index < times.length; index += 1) {
+      setCropStatus(`${index + 1} / ${times.length} 枚を作成中...`);
+      await seekVideo(video, times[index]);
+      workCtx.clearRect(0, 0, workCanvas.width, workCanvas.height);
+      workCtx.drawImage(
+        video,
+        selection.x,
+        selection.y,
+        selection.width,
+        selection.height,
+        0,
+        0,
+        workCanvas.width,
+        workCanvas.height,
+      );
+      state.cropImages.push({
+        id: crypto.randomUUID(),
+        time: times[index],
+        dataUrl: workCanvas.toDataURL("image/png"),
+      });
+    }
+    setCropStatus(`${state.cropImages.length} 枚作成しました`);
+    renderCropPages();
+  } catch (error) {
+    setCropStatus(error.message);
+  } finally {
+    els.generateCrops.disabled = false;
+  }
+}
+
+function renderCropPages() {
+  const pages = [];
+  for (let i = 0; i < state.cropImages.length; i += 8) {
+    pages.push(state.cropImages.slice(i, i + 8));
+  }
+  els.cropPageStatus.textContent = `${state.cropImages.length}枚 / ${pages.length}ページ`;
+  els.cropPager.innerHTML = "";
+  els.cropPages.innerHTML = "";
+
+  if (!pages.length) {
+    els.cropPages.innerHTML = '<p class="empty">作成した画像がここに表示されます。</p>';
+    return;
+  }
+
+  pages.forEach((_, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${index + 1}`;
+    button.className = index === state.cropPage ? "active" : "";
+    button.addEventListener("click", () => {
+      state.cropPage = index;
+      renderCropPages();
+    });
+    els.cropPager.append(button);
+  });
+
+  const page = pages[state.cropPage] || pages[0];
+  const pageEl = document.createElement("section");
+  pageEl.className = "crop-page";
+  pageEl.innerHTML = `
+    <div class="crop-page-header">
+      <h3>${state.cropPage + 1}ページ目</h3>
+      <button type="button" data-download-crop-page="${state.cropPage}">このページをダウンロード</button>
+    </div>
+    <div class="crop-image-grid"></div>
+  `;
+  const grid = pageEl.querySelector(".crop-image-grid");
+  page.forEach((image, index) => {
+    const item = document.createElement("article");
+    item.className = "crop-image-card";
+    item.innerHTML = `
+      <img src="${image.dataUrl}" alt="切り抜き画像 ${state.cropPage * 8 + index + 1}">
+      <div>
+        <strong>${state.cropPage * 8 + index + 1}</strong>
+        <span>${formatTime(image.time)}</span>
+      </div>
+      <a href="${image.dataUrl}" download="crop-${String(state.cropPage * 8 + index + 1).padStart(2, "0")}.png">画像保存</a>
+    `;
+    grid.append(item);
+  });
+  els.cropPages.append(pageEl);
+}
+
+function drawContainToCanvas(localCtx, img, x, y, w, h) {
+  localCtx.fillStyle = "#f1eadf";
+  localCtx.fillRect(x, y, w, h);
+  const scale = Math.min(w / img.width, h / img.height);
+  const drawW = img.width * scale;
+  const drawH = img.height * scale;
+  localCtx.drawImage(img, x + (w - drawW) / 2, y + (h - drawH) / 2, drawW, drawH);
+}
+
+async function downloadCropPage(pageIndex) {
+  const images = state.cropImages.slice(pageIndex * 8, pageIndex * 8 + 8);
+  if (!images.length) return;
+
+  const pageCanvas = document.createElement("canvas");
+  const localCtx = pageCanvas.getContext("2d");
+  const cellW = 520;
+  const cellH = 360;
+  const gap = 24;
+  const margin = 36;
+  pageCanvas.width = margin * 2 + cellW * 2 + gap;
+  pageCanvas.height = margin * 2 + cellH * 4 + gap * 3;
+  localCtx.fillStyle = "#fffdf7";
+  localCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+
+  await Promise.all(
+    images.map(
+      (image, index) =>
+        new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const col = index % 2;
+            const row = Math.floor(index / 2);
+            const x = margin + col * (cellW + gap);
+            const y = margin + row * (cellH + gap);
+            drawContainToCanvas(localCtx, img, x, y, cellW, cellH - 34);
+            localCtx.fillStyle = "#2b2118";
+            localCtx.font = "700 22px system-ui";
+            localCtx.fillText(`${pageIndex * 8 + index + 1}. ${formatTime(image.time)}`, x, y + cellH - 8);
+            resolve();
+          };
+          img.src = image.dataUrl;
+        }),
+    ),
+  );
+
+  const link = document.createElement("a");
+  link.download = `crop-page-${pageIndex + 1}.png`;
+  link.href = pageCanvas.toDataURL("image/png");
+  link.click();
 }
 
 els.descriptionInput.addEventListener("input", () => {
@@ -940,7 +1274,44 @@ els.cardGallery.addEventListener("click", (event) => {
     deleteCompletedCard(deleteButton.dataset.deleteCard);
   }
 });
+els.cardGallery.addEventListener("change", (event) => {
+  const dateInput = event.target.closest("[data-last-cooked-card]");
+  if (dateInput) {
+    updateLastCookedDate(dateInput.dataset.lastCookedCard, dateInput.value);
+  }
+});
+els.cropVideoInput.addEventListener("change", loadCropVideo);
+els.generateCrops.addEventListener("click", generateCropImages);
+els.resetCropper.addEventListener("click", () => {
+  if (state.cropVideoUrl) URL.revokeObjectURL(state.cropVideoUrl);
+  state.cropVideoUrl = "";
+  state.cropSelection = null;
+  state.cropImages = [];
+  state.cropPage = 0;
+  els.cropVideoInput.value = "";
+  els.cropIntervalInput.value = "4";
+  els.cropVideoProbe.removeAttribute("src");
+  els.cropVideoProbe.load();
+  els.cropPreviewCanvas.getContext("2d").clearRect(0, 0, els.cropPreviewCanvas.width, els.cropPreviewCanvas.height);
+  els.cropSelection.hidden = true;
+  setCropStatus("動画を選択してください");
+  renderCropPages();
+});
+els.cropPreviewCanvas.addEventListener("pointerdown", (event) => {
+  els.cropPreviewCanvas.setPointerCapture(event.pointerId);
+  startCropSelection(event);
+});
+els.cropPreviewCanvas.addEventListener("pointermove", moveCropSelection);
+els.cropPreviewCanvas.addEventListener("pointerup", finishCropSelection);
+els.cropPreviewCanvas.addEventListener("pointercancel", finishCropSelection);
+els.cropPages.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-download-crop-page]");
+  if (button) {
+    downloadCropPage(Number(button.dataset.downloadCropPage));
+  }
+});
 window.addEventListener("resize", renderDropZones);
+window.addEventListener("resize", updateCropSelectionElement);
 
 if ("ResizeObserver" in window) {
   const resizeObserver = new ResizeObserver(renderDropZones);
@@ -951,3 +1322,4 @@ renderFrames();
 renderAssignments();
 drawRecipe();
 loadSavedCards();
+renderCropPages();

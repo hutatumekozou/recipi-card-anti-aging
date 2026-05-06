@@ -10,6 +10,7 @@
     <nav class="tabs" aria-label="画面切り替え">
       <button class="tab-button active" type="button" data-tab="builder">レシピ作成</button>
       <button class="tab-button" type="button" data-tab="cards">完成カード</button>
+      <button class="tab-button" type="button" data-tab="cropper">スクショ作成</button>
     </nav>
 
     <main id="builderTab" class="app tab-panel active">
@@ -151,6 +152,10 @@
           <input id="cardImageInput" type="file" accept="image/png,image/jpeg,image/webp" />
         </div>
         <div class="field">
+          <label for="lastCookedInput">最後に調理した日</label>
+          <input id="lastCookedInput" type="date" />
+        </div>
+        <div class="field">
           <label>&nbsp;</label>
           <button id="saveCardImage" type="button">完成カードを追加</button>
         </div>
@@ -165,8 +170,63 @@
       </section>
     </main>
 
+    <main id="cropperTab" class="cropper-page tab-panel" hidden>
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Screen Capture Cropper</p>
+          <h1>画面収録から指定範囲の画像を作成</h1>
+        </div>
+      </header>
+
+      <section class="cropper-layout">
+        <section class="panel cropper-controls">
+          <div class="field">
+            <label for="cropVideoInput">画面収録動画</label>
+            <input id="cropVideoInput" type="file" accept="video/*" />
+          </div>
+          <div class="field">
+            <label for="cropIntervalInput">スクリーンショット間隔</label>
+            <div class="inline">
+              <input id="cropIntervalInput" type="number" min="1" max="60" value="4" />
+              <span>秒ごと</span>
+            </div>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="generateCrops" type="button">画像を作成</button>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button id="resetCropper" class="reset-button" type="button">リセット</button>
+          </div>
+        </section>
+
+        <section class="panel crop-preview-panel">
+          <div class="panel-title">
+            <h2>範囲選択</h2>
+            <span id="cropStatus">動画を選択してください</span>
+          </div>
+          <div id="cropPreviewWrap" class="crop-preview-wrap">
+            <canvas id="cropPreviewCanvas"></canvas>
+            <div id="cropSelection" class="crop-selection" hidden></div>
+          </div>
+        </section>
+
+        <section class="panel crop-results-panel">
+          <div class="panel-title">
+            <h2>画像生成一覧</h2>
+            <span id="cropPageStatus">0枚</span>
+          </div>
+          <div id="cropPager" class="crop-pager"></div>
+          <div id="cropPages" class="crop-pages"></div>
+        </section>
+      </section>
+    </main>
+
     <video id="videoProbe" muted playsinline></video>
+    <video id="cropVideoProbe" muted playsinline></video>
     <canvas id="scratchCanvas"></canvas>
+    <canvas id="cropWorkCanvas"></canvas>
     <script src="./app.js"></script>
   </body>
 </html>
