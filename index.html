@@ -10,6 +10,7 @@
     <nav class="tabs" aria-label="画面切り替え">
       <button class="tab-button active" type="button" data-tab="cards">完成カード</button>
       <button class="tab-button" type="button" data-tab="cropper">スクショ作成</button>
+      <button class="tab-button" type="button" data-tab="prompts">プロンプト作成</button>
     </nav>
 
     <main id="builderTab" class="app tab-panel" hidden>
@@ -154,6 +155,11 @@
           <label for="lastCookedInput">最後に調理した日</label>
           <input id="lastCookedInput" type="date" />
         </div>
+        <div class="field wide">
+          <label>このレシピに該当する効能</label>
+          <div id="cardBenefitOptions" class="benefit-options"></div>
+          <div id="cardSelectedBenefits" class="selected-benefits">未選択</div>
+        </div>
         <div class="field">
           <label>&nbsp;</label>
           <button id="saveCardImage" type="button">完成カードを追加</button>
@@ -218,6 +224,63 @@
           </div>
           <div id="cropPager" class="crop-pager"></div>
           <div id="cropPages" class="crop-pages"></div>
+        </section>
+      </section>
+    </main>
+
+    <main id="promptsTab" class="prompts-page tab-panel" hidden>
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Prompt Builder</p>
+          <h1>レシピ画像作成用プロンプトを作成</h1>
+        </div>
+      </header>
+
+      <section class="prompt-layout">
+        <section class="panel prompt-inputs">
+          <div class="field">
+            <label for="promptTitleInput">料理タイトル</label>
+            <input id="promptTitleInput" type="text" placeholder="例：鯖納豆白菜" />
+          </div>
+          <div class="field">
+            <label for="promptStepsInput">手順</label>
+            <textarea id="promptStepsInput" rows="10" placeholder="例：&#10;1. 白菜を切る&#10;2. 納豆と鯖缶を混ぜる&#10;3. 全体を合わせる"></textarea>
+          </div>
+          <div class="field">
+            <div class="field-heading">
+              <label for="promptBenefitsInput">各レシピについての効能候補一覧</label>
+              <button id="editBenefits" class="copy-button" type="button">編集</button>
+            </div>
+            <textarea id="promptBenefitsInput" rows="8" readonly>低コスト ダイエット 疲労回復 美容 便通改善
+高タンパク 高食物繊維 ガッツリ系 おもてなし
+B級レシピ 時短 材料5個以下 子供向け
+レンジのみ 炊飯器のみ 低温調理器</textarea>
+          </div>
+          <div class="field">
+            <label>このレシピに該当する効能</label>
+            <div id="benefitOptions" class="benefit-options"></div>
+            <div id="selectedBenefits" class="selected-benefits">未選択</div>
+          </div>
+          <div class="prompt-actions">
+            <button id="generatePrompts" class="build-button" type="button">プロンプトを作成</button>
+            <button id="resetPrompts" class="reset-button" type="button">リセット</button>
+          </div>
+        </section>
+
+        <section class="panel prompt-output-panel">
+          <div class="panel-title">
+            <h2>GPTへの画像作成依頼文章</h2>
+            <button class="copy-button" type="button" data-copy-target="gptPromptOutput">コピー</button>
+          </div>
+          <textarea id="gptPromptOutput" rows="10" readonly></textarea>
+        </section>
+
+        <section class="panel prompt-output-panel">
+          <div class="panel-title">
+            <h2>つっしーAIへの画像作成依頼文章</h2>
+            <button class="copy-button" type="button" data-copy-target="tsussyPromptOutput">コピー</button>
+          </div>
+          <textarea id="tsussyPromptOutput" rows="10" readonly></textarea>
         </section>
       </section>
     </main>

@@ -8,6 +8,7 @@ const state = {
   cropPage: 0,
   isSelectingCrop: false,
   cropDragStart: null,
+  savedCards: [],
 };
 
 const els = {
@@ -15,6 +16,7 @@ const els = {
   builderTab: document.querySelector("#builderTab"),
   cardsTab: document.querySelector("#cardsTab"),
   cropperTab: document.querySelector("#cropperTab"),
+  promptsTab: document.querySelector("#promptsTab"),
   videoInput: document.querySelector("#videoInput"),
   extractFrames: document.querySelector("#extractFrames"),
   intervalInput: document.querySelector("#intervalInput"),
@@ -34,6 +36,8 @@ const els = {
   cardTitleInput: document.querySelector("#cardTitleInput"),
   cardImageInput: document.querySelector("#cardImageInput"),
   lastCookedInput: document.querySelector("#lastCookedInput"),
+  cardBenefitOptions: document.querySelector("#cardBenefitOptions"),
+  cardSelectedBenefits: document.querySelector("#cardSelectedBenefits"),
   saveCardImage: document.querySelector("#saveCardImage"),
   cardGallery: document.querySelector("#cardGallery"),
   cardGalleryStatus: document.querySelector("#cardGalleryStatus"),
@@ -50,6 +54,17 @@ const els = {
   cropPageStatus: document.querySelector("#cropPageStatus"),
   cropPager: document.querySelector("#cropPager"),
   cropPages: document.querySelector("#cropPages"),
+  promptTitleInput: document.querySelector("#promptTitleInput"),
+  promptStepsInput: document.querySelector("#promptStepsInput"),
+  promptBenefitsInput: document.querySelector("#promptBenefitsInput"),
+  benefitOptions: document.querySelector("#benefitOptions"),
+  selectedBenefits: document.querySelector("#selectedBenefits"),
+  editBenefits: document.querySelector("#editBenefits"),
+  resetPrompts: document.querySelector("#resetPrompts"),
+  generatePrompts: document.querySelector("#generatePrompts"),
+  gptPromptOutput: document.querySelector("#gptPromptOutput"),
+  tsussyPromptOutput: document.querySelector("#tsussyPromptOutput"),
+  promptOutputPanel: document.querySelector("#promptsTab"),
 };
 
 const ctx = els.recipeCanvas.getContext("2d");
@@ -747,9 +762,11 @@ function resetBuilderInputs() {
 function switchTab(tabName) {
   const isCards = tabName === "cards";
   const isCropper = tabName === "cropper";
-  els.builderTab.hidden = isCards || isCropper;
+  const isPrompts = tabName === "prompts";
+  els.builderTab.hidden = isCards || isCropper || isPrompts;
   els.cardsTab.hidden = !isCards;
   els.cropperTab.hidden = !isCropper;
+  els.promptsTab.hidden = !isPrompts;
   els.tabButtons.forEach((button) => {
     button.classList.toggle("active", button.dataset.tab === tabName);
   });
@@ -857,17 +874,22 @@ async function saveCompletedCard() {
   try {
     const image = await readFileAsDataUrl(file);
     const title = els.cardTitleInput.value.trim() || file.name.replace(/\.[^.]+$/, "");
+    const benefits = getCheckedValues(els.cardBenefitOptions);
     await addCardRecord({
       id: crypto.randomUUID(),
       title,
       image,
       lastCookedAt: els.lastCookedInput.value,
+      cookCount: els.lastCookedInput.value ? 1 : 0,
+      benefits,
       createdAt: new Date().toISOString(),
     });
 
     els.cardTitleInput.value = "";
     els.cardImageInput.value = "";
     els.lastCookedInput.value = "";
+    clearCheckedValues(els.cardBenefitOptions);
+    updateCardSelectedBenefitsDisplay();
     await loadSavedCards();
   } catch (error) {
     els.cardGalleryStatus.textContent = error.message;
@@ -884,6 +906,7 @@ async function loadSavedCards() {
     bundledCards.forEach((card) => cardMap.set(card.id, card));
     localCards.forEach((card) => cardMap.set(card.id, card));
     const cards = [...cardMap.values()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    state.savedCards = cards;
     renderCardGallery(cards);
   } catch (error) {
     els.cardGalleryStatus.textContent = error.message;
@@ -905,17 +928,42 @@ function renderCardGallery(cards) {
     const item = document.createElement("article");
     item.className = "saved-card";
     const imageSrc = card.image || card.url;
+    const benefits = Array.isArray(card.benefits) ? card.benefits : [];
+    const benefitOptions = renderBenefitCheckboxMarkup(benefits, `card-${card.id}`, true);
+    const cookCount = getCookCount(card);
     item.innerHTML = `
       <img src="${imageSrc}" alt="${escapeHtml(card.title)}">
       <div class="saved-card-body">
         <h3>${escapeHtml(card.title)}</h3>
-        <div class="saved-card-meta">${new Date(card.createdAt).toLocaleString("ja-JP")}</div>
+        <div class="saved-card-meta card-info-row">
+          <span>レシピ作成日 ${formatDateTime(card.createdAt)}</span>
+          <span>最終調理日 ${formatCookedDate(card.lastCookedAt)}</span>
+          <span>累積 ${cookCount}回</span>
+        </div>
+        <div class="card-benefit-tags" data-card-benefit-tags="${card.id}">${renderCardBenefitTags(benefits)}</div>
         <div class="last-cooked-field">
           <label for="last-cooked-${card.id}">最後に調理した日</label>
-          <input id="last-cooked-${card.id}" type="date" value="${card.lastCookedAt || ""}" data-last-cooked-card="${card.id}">
+          <div class="last-cooked-control">
+            <input id="last-cooked-${card.id}" type="date" value="${card.lastCookedAt || ""}" data-last-cooked-input="${card.id}">
+            <button type="button" data-save-last-cooked="${card.id}">保存</button>
+          </div>
+        </div>
+        <div class="saved-card-benefits" data-card-benefit-editor="${card.id}">
+          <div class="saved-card-benefit-header">
+            <button class="benefit-toggle" type="button" data-toggle-card-benefits="${card.id}" aria-expanded="true">↓ 効能一覧</button>
+            <button type="button" data-edit-card-benefits="${card.id}">修正</button>
+          </div>
+          <div class="card-benefit-edit-body" data-card-benefit-body="${card.id}">
+            <div class="benefit-options compact" data-card-benefits="${card.id}">
+              ${benefitOptions}
+            </div>
+            <div class="card-benefit-edit-actions">
+              <button type="button" data-save-card-benefits="${card.id}" disabled>保存</button>
+            </div>
+          </div>
         </div>
         <div class="saved-card-actions">
-          <a href="${imageSrc}" download="${escapeFilename(card.title)}">保存</a>
+          <button type="button" data-download-completed-card="${card.id}">カードDW</button>
           <button type="button" data-delete-card="${card.id}" data-bundled="${card.bundled ? "true" : "false"}">削除</button>
         </div>
       </div>
@@ -939,12 +987,21 @@ async function deleteCompletedCard(cardId) {
   }
 }
 
-async function updateLastCookedDate(cardId, lastCookedAt) {
+async function saveLastCookedDate(cardId, lastCookedAt) {
+  if (!lastCookedAt) {
+    els.cardGalleryStatus.textContent = "最後に調理した日を入力してください";
+    return;
+  }
+
   try {
     const [bundledCards, localCards] = await Promise.all([getBundledCards(), getCardRecords()]);
     const localCard = localCards.find((card) => card.id === cardId);
     if (localCard) {
-      await putCardRecord({ ...localCard, lastCookedAt });
+      await putCardRecord({
+        ...localCard,
+        lastCookedAt,
+        cookCount: getCookCount(localCard) + 1,
+      });
       await loadSavedCards();
       return;
     }
@@ -956,12 +1013,228 @@ async function updateLastCookedDate(cardId, lastCookedAt) {
       ...bundledCard,
       image: bundledCard.url,
       lastCookedAt,
+      cookCount: getCookCount(bundledCard) + 1,
       bundled: false,
     });
     await loadSavedCards();
   } catch (error) {
     els.cardGalleryStatus.textContent = error.message;
   }
+}
+
+async function updateCompletedCardBenefits(cardId, benefits) {
+  const saved = await updateCompletedCard(cardId, { benefits }, false);
+  if (!saved) return;
+
+  const tagContainer = els.cardGallery.querySelector(`[data-card-benefit-tags="${cardId}"]`);
+  if (tagContainer) {
+    tagContainer.innerHTML = renderCardBenefitTags(benefits);
+  }
+  setCardBenefitEditorState(cardId, false);
+  els.cardGalleryStatus.textContent = "効能を保存しました";
+}
+
+async function updateCompletedCard(cardId, updates, shouldReload = true) {
+  try {
+    const [bundledCards, localCards] = await Promise.all([getBundledCards(), getCardRecords()]);
+    const localCard = localCards.find((card) => card.id === cardId);
+    if (localCard) {
+      await putCardRecord({ ...localCard, ...updates });
+      if (shouldReload) await loadSavedCards();
+      return true;
+    }
+
+    const bundledCard = bundledCards.find((card) => card.id === cardId);
+    if (!bundledCard) return false;
+
+    await putCardRecord({
+      ...bundledCard,
+      image: bundledCard.url,
+      ...updates,
+      bundled: false,
+    });
+    if (shouldReload) await loadSavedCards();
+    return true;
+  } catch (error) {
+    els.cardGalleryStatus.textContent = error.message;
+    return false;
+  }
+}
+
+function renderCardBenefitTags(benefits) {
+  return benefits.length
+    ? benefits.map((benefit) => `<span>${escapeHtml(benefit)}</span>`).join("")
+    : `<span class="empty-card-benefit">未設定</span>`;
+}
+
+function getCookCount(card) {
+  const count = Number(card.cookCount);
+  if (Number.isFinite(count) && count > 0) return Math.floor(count);
+  return card.lastCookedAt ? 1 : 0;
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "未設定";
+  return date.toLocaleString("ja-JP");
+}
+
+function formatCookedDate(value) {
+  if (!value) return "未設定";
+  return value.replaceAll("-", "/");
+}
+
+function findSavedCard(cardId) {
+  return state.savedCards.find((card) => card.id === cardId);
+}
+
+function loadCanvasImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("保存用画像を読み込めませんでした"));
+    img.src = src;
+  });
+}
+
+function getWrappedLines(localCtx, text, maxWidth, font) {
+  localCtx.font = font;
+  const lines = [];
+  String(text || "").split("\n").forEach((sourceLine) => {
+    let line = "";
+    for (const char of sourceLine) {
+      const testLine = line + char;
+      if (localCtx.measureText(testLine).width > maxWidth && line) {
+        lines.push(line);
+        line = char;
+      } else {
+        line = testLine;
+      }
+    }
+    if (line) lines.push(line);
+  });
+  return lines.length ? lines : [""];
+}
+
+function getTagRows(localCtx, tags, maxWidth) {
+  const rows = [[]];
+  let rowWidth = 0;
+
+  tags.forEach((tag) => {
+    const tagWidth = Math.ceil(localCtx.measureText(tag).width) + 44;
+    const gap = rows[rows.length - 1].length ? 10 : 0;
+    if (rowWidth + gap + tagWidth > maxWidth && rows[rows.length - 1].length) {
+      rows.push([tag]);
+      rowWidth = tagWidth;
+    } else {
+      rows[rows.length - 1].push(tag);
+      rowWidth += gap + tagWidth;
+    }
+  });
+
+  return rows;
+}
+
+async function downloadCompletedCard(cardId) {
+  const card = findSavedCard(cardId);
+  if (!card) return;
+
+  try {
+    const imageSrc = card.image || card.url;
+    const img = await loadCanvasImage(imageSrc);
+    const benefits = Array.isArray(card.benefits) && card.benefits.length ? card.benefits : ["未設定"];
+    const outputWidth = 1200;
+    const margin = 44;
+    const imageHeight = Math.round((img.height / img.width) * outputWidth);
+    const canvas = document.createElement("canvas");
+    const localCtx = canvas.getContext("2d");
+
+    localCtx.font = "900 38px system-ui";
+    const titleLines = getWrappedLines(localCtx, card.title, outputWidth - margin * 2, "900 38px system-ui");
+    localCtx.font = "900 25px system-ui";
+    const tagRows = getTagRows(localCtx, benefits, outputWidth - margin * 2);
+    const infoHeight = 48 + titleLines.length * 48 + 42 + tagRows.length * 46 + 34;
+
+    canvas.width = outputWidth;
+    canvas.height = imageHeight + infoHeight;
+    localCtx.fillStyle = "#fffdf7";
+    localCtx.fillRect(0, 0, canvas.width, canvas.height);
+    localCtx.drawImage(img, 0, 0, outputWidth, imageHeight);
+
+    const infoY = imageHeight;
+    localCtx.fillStyle = "#fff";
+    localCtx.fillRect(0, infoY, outputWidth, infoHeight);
+
+    let y = infoY + 58;
+    localCtx.fillStyle = "#2b2118";
+    localCtx.font = "900 38px system-ui";
+    titleLines.forEach((line) => {
+      localCtx.fillText(line, margin, y);
+      y += 48;
+    });
+
+    localCtx.fillStyle = "#6f665c";
+    localCtx.font = "700 24px system-ui";
+    localCtx.fillText(
+      `レシピ作成日 ${formatDateTime(card.createdAt)}   最終調理日 ${formatCookedDate(card.lastCookedAt)}   累積 ${getCookCount(card)}回`,
+      margin,
+      y + 4,
+    );
+    y += 48;
+
+    localCtx.font = "900 25px system-ui";
+    tagRows.forEach((row) => {
+      let x = margin;
+      row.forEach((tag) => {
+        const tagWidth = Math.ceil(localCtx.measureText(tag).width) + 44;
+        localCtx.fillStyle = tag === "未設定" ? "#f8f3ea" : "#edf5df";
+        roundRect(localCtx, x, y - 28, tagWidth, 36, 18, true, false);
+        localCtx.fillStyle = tag === "未設定" ? "#7b7166" : "#3f8d37";
+        localCtx.fillText(tag, x + 22, y - 3);
+        x += tagWidth + 10;
+      });
+      y += 46;
+    });
+
+    const link = document.createElement("a");
+    link.download = escapeFilename(card.title);
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  } catch (error) {
+    els.cardGalleryStatus.textContent = error.message;
+  }
+}
+
+function setCardBenefitEditorState(cardId, isEditing) {
+  const editor = els.cardGallery.querySelector(`[data-card-benefit-editor="${cardId}"]`);
+  if (!editor) return;
+
+  editor.classList.toggle("editing", isEditing);
+  editor.querySelectorAll(`[data-card-benefits="${cardId}"] input`).forEach((input) => {
+    input.disabled = !isEditing;
+  });
+
+  const saveButton = editor.querySelector(`[data-save-card-benefits="${cardId}"]`);
+  if (saveButton) saveButton.disabled = !isEditing;
+
+  const editButton = editor.querySelector(`[data-edit-card-benefits="${cardId}"]`);
+  if (editButton) {
+    editButton.disabled = isEditing;
+    editButton.textContent = isEditing ? "修正中" : "修正";
+  }
+}
+
+function toggleCardBenefitList(cardId) {
+  const editor = els.cardGallery.querySelector(`[data-card-benefit-editor="${cardId}"]`);
+  const body = els.cardGallery.querySelector(`[data-card-benefit-body="${cardId}"]`);
+  const toggleButton = els.cardGallery.querySelector(`[data-toggle-card-benefits="${cardId}"]`);
+  if (!editor || !body || !toggleButton) return;
+
+  const willCollapse = !body.hidden;
+  body.hidden = willCollapse;
+  editor.classList.toggle("collapsed", willCollapse);
+  toggleButton.setAttribute("aria-expanded", String(!willCollapse));
+  toggleButton.textContent = willCollapse ? "→ 効能一覧" : "↓ 効能一覧";
 }
 
 function escapeHtml(value) {
@@ -979,6 +1252,120 @@ function escapeHtml(value) {
 function escapeFilename(value) {
   const safeName = String(value).replace(/[\\/:*?"<>|]/g, "_").trim() || "recipe-card";
   return `${safeName}.png`;
+}
+
+function generatePromptTexts() {
+  const title = els.promptTitleInput.value.trim() || "このレシピ";
+  const stepsText = els.promptStepsInput.value.trim();
+  const benefitsText = els.promptBenefitsInput.value.trim();
+
+  els.gptPromptOutput.value = `${title}
+
+${stepsText || "（手順）"}
+
+について、添付した画像の工程を参照して、1枚のレシピ画像を作ってください。
+
+材料費と調理時間も入れてください。
+材料、手順、完成イメージ、栄養や日持ちが分かる場合は、それも見やすく整理してください。`;
+
+  els.tsussyPromptOutput.value = `${title}について
+
+効能候補一覧:
+${benefitsText || "（各レシピについての効能候補一覧）"}
+
+このレシピに該当する上記のプラス効果一覧から
+該当するものをピックアップして`;
+}
+
+function parseBenefitOptions() {
+  return Array.from(
+    new Set(
+      els.promptBenefitsInput.value
+        .split(/[\s、,]+/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function getCheckedValues(container) {
+  return Array.from(container.querySelectorAll("input:checked")).map((input) => input.value);
+}
+
+function clearCheckedValues(container) {
+  container.querySelectorAll("input:checked").forEach((input) => {
+    input.checked = false;
+  });
+}
+
+function getSelectedBenefits() {
+  return getCheckedValues(els.benefitOptions);
+}
+
+function updateSelectedBenefitsDisplay() {
+  const selectedBenefits = getSelectedBenefits();
+  els.selectedBenefits.textContent = selectedBenefits.length ? selectedBenefits.join(" / ") : "未選択";
+}
+
+function updateCardSelectedBenefitsDisplay() {
+  const selectedBenefits = getCheckedValues(els.cardBenefitOptions);
+  els.cardSelectedBenefits.textContent = selectedBenefits.length ? selectedBenefits.join(" / ") : "未選択";
+}
+
+function renderBenefitCheckboxMarkup(selectedValues = [], namePrefix = "benefit", isDisabled = false) {
+  const selected = new Set(selectedValues);
+  return parseBenefitOptions()
+    .map((option) => {
+      const checked = selected.has(option) ? " checked" : "";
+      const disabled = isDisabled ? " disabled" : "";
+      const value = escapeHtml(option);
+      return `<label class="benefit-option"><input type="checkbox" name="${escapeHtml(namePrefix)}" value="${value}"${checked}${disabled}>${value}</label>`;
+    })
+    .join("");
+}
+
+function renderBenefitOptions() {
+  const selectedValues = new Set(getSelectedBenefits());
+  const options = parseBenefitOptions();
+
+  els.benefitOptions.innerHTML = renderBenefitCheckboxMarkup([...selectedValues], "prompt-benefit");
+  els.cardBenefitOptions.innerHTML = renderBenefitCheckboxMarkup(getCheckedValues(els.cardBenefitOptions), "new-card-benefit");
+
+  if (!options.length) {
+    els.benefitOptions.innerHTML = `<p class="empty-benefits">効能候補を編集して入力してください。</p>`;
+    els.cardBenefitOptions.innerHTML = `<p class="empty-benefits">効能候補を編集して入力してください。</p>`;
+  }
+
+  updateSelectedBenefitsDisplay();
+  updateCardSelectedBenefitsDisplay();
+}
+
+async function copyPromptText(targetId) {
+  const target = document.querySelector(`#${targetId}`);
+  if (!target) return;
+  target.select();
+  await navigator.clipboard.writeText(target.value);
+}
+
+function toggleBenefitsEditing() {
+  const isLocked = els.promptBenefitsInput.readOnly;
+  els.promptBenefitsInput.readOnly = !isLocked;
+  els.editBenefits.textContent = isLocked ? "固定" : "編集";
+  els.promptBenefitsInput.classList.toggle("editable", isLocked);
+  if (isLocked) {
+    els.promptBenefitsInput.focus();
+  } else {
+    renderBenefitOptions();
+  }
+}
+
+function resetPromptBuilder() {
+  els.promptTitleInput.value = "";
+  els.promptStepsInput.value = "";
+  els.gptPromptOutput.value = "";
+  els.tsussyPromptOutput.value = "";
+  clearCheckedValues(els.benefitOptions);
+  updateSelectedBenefitsDisplay();
 }
 
 function setCropStatus(message) {
@@ -1177,31 +1564,45 @@ function renderCropPages() {
     els.cropPager.append(button);
   });
 
+  state.cropPage = Math.min(state.cropPage, pages.length - 1);
   const page = pages[state.cropPage] || pages[0];
   const pageEl = document.createElement("section");
   pageEl.className = "crop-page";
   pageEl.innerHTML = `
     <div class="crop-page-header">
       <h3>${state.cropPage + 1}ページ目</h3>
-      <button type="button" data-download-crop-page="${state.cropPage}">このページをダウンロード</button>
+      <div class="crop-page-actions">
+        <button type="button" data-download-all-crop-pages>全ページをダウンロード</button>
+        <button type="button" data-download-crop-page="${state.cropPage}">このページをダウンロード</button>
+      </div>
     </div>
     <div class="crop-image-grid"></div>
   `;
   const grid = pageEl.querySelector(".crop-image-grid");
   page.forEach((image, index) => {
+    const imageNumber = state.cropPage * 8 + index + 1;
     const item = document.createElement("article");
     item.className = "crop-image-card";
     item.innerHTML = `
-      <img src="${image.dataUrl}" alt="切り抜き画像 ${state.cropPage * 8 + index + 1}">
+      <button class="crop-delete-button" type="button" data-delete-crop-image="${image.id}" aria-label="この画像を削除">×</button>
+      <img src="${image.dataUrl}" alt="切り抜き画像 ${imageNumber}">
       <div>
-        <strong>${state.cropPage * 8 + index + 1}</strong>
+        <strong>${imageNumber}</strong>
         <span>${formatTime(image.time)}</span>
       </div>
-      <a href="${image.dataUrl}" download="crop-${String(state.cropPage * 8 + index + 1).padStart(2, "0")}.png">画像保存</a>
+      <a href="${image.dataUrl}" download="crop-${String(imageNumber).padStart(2, "0")}.png">画像保存</a>
     `;
     grid.append(item);
   });
   els.cropPages.append(pageEl);
+}
+
+function deleteCropImage(imageId) {
+  state.cropImages = state.cropImages.filter((image) => image.id !== imageId);
+  const pageCount = Math.ceil(state.cropImages.length / 8);
+  state.cropPage = pageCount ? Math.min(state.cropPage, pageCount - 1) : 0;
+  renderCropPages();
+  setCropStatus(`${state.cropImages.length} 枚にしました`);
 }
 
 function drawContainToCanvas(localCtx, img, x, y, w, h) {
@@ -1255,6 +1656,24 @@ async function downloadCropPage(pageIndex) {
   link.click();
 }
 
+function wait(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function downloadAllCropPages() {
+  const pageCount = Math.ceil(state.cropImages.length / 8);
+  if (!pageCount) return;
+
+  setCropStatus(`${pageCount} ページをダウンロード中...`);
+  for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+    await downloadCropPage(pageIndex);
+    await wait(180);
+  }
+  setCropStatus(`${pageCount} ページをダウンロードしました`);
+}
+
 els.descriptionInput.addEventListener("input", () => {
   renderAssignments();
   drawRecipe();
@@ -1269,17 +1688,52 @@ els.downloadPng.addEventListener("click", () => downloadImage("image/png"));
 els.downloadJpg.addEventListener("click", () => downloadImage("image/jpeg"));
 els.saveCardImage.addEventListener("click", saveCompletedCard);
 els.cardGallery.addEventListener("click", (event) => {
+  const downloadCardButton = event.target.closest("[data-download-completed-card]");
+  if (downloadCardButton) {
+    downloadCompletedCard(downloadCardButton.dataset.downloadCompletedCard);
+    return;
+  }
+
+  const saveLastCookedButton = event.target.closest("[data-save-last-cooked]");
+  if (saveLastCookedButton) {
+    const dateInput = els.cardGallery.querySelector(
+      `[data-last-cooked-input="${saveLastCookedButton.dataset.saveLastCooked}"]`,
+    );
+    if (dateInput) {
+      saveLastCookedDate(saveLastCookedButton.dataset.saveLastCooked, dateInput.value);
+    }
+    return;
+  }
+
+  const toggleBenefitsButton = event.target.closest("[data-toggle-card-benefits]");
+  if (toggleBenefitsButton) {
+    toggleCardBenefitList(toggleBenefitsButton.dataset.toggleCardBenefits);
+    return;
+  }
+
+  const editBenefitsButton = event.target.closest("[data-edit-card-benefits]");
+  if (editBenefitsButton) {
+    setCardBenefitEditorState(editBenefitsButton.dataset.editCardBenefits, true);
+    return;
+  }
+
+  const saveBenefitsButton = event.target.closest("[data-save-card-benefits]");
+  if (saveBenefitsButton) {
+    const benefitContainer = els.cardGallery.querySelector(
+      `[data-card-benefits="${saveBenefitsButton.dataset.saveCardBenefits}"]`,
+    );
+    if (benefitContainer) {
+      updateCompletedCardBenefits(saveBenefitsButton.dataset.saveCardBenefits, getCheckedValues(benefitContainer));
+    }
+    return;
+  }
+
   const deleteButton = event.target.closest("[data-delete-card]");
   if (deleteButton) {
     deleteCompletedCard(deleteButton.dataset.deleteCard);
   }
 });
-els.cardGallery.addEventListener("change", (event) => {
-  const dateInput = event.target.closest("[data-last-cooked-card]");
-  if (dateInput) {
-    updateLastCookedDate(dateInput.dataset.lastCookedCard, dateInput.value);
-  }
-});
+els.cardBenefitOptions.addEventListener("change", updateCardSelectedBenefitsDisplay);
 els.cropVideoInput.addEventListener("change", loadCropVideo);
 els.generateCrops.addEventListener("click", generateCropImages);
 els.resetCropper.addEventListener("click", () => {
@@ -1305,9 +1759,31 @@ els.cropPreviewCanvas.addEventListener("pointermove", moveCropSelection);
 els.cropPreviewCanvas.addEventListener("pointerup", finishCropSelection);
 els.cropPreviewCanvas.addEventListener("pointercancel", finishCropSelection);
 els.cropPages.addEventListener("click", (event) => {
+  const deleteButton = event.target.closest("[data-delete-crop-image]");
+  if (deleteButton) {
+    deleteCropImage(deleteButton.dataset.deleteCropImage);
+    return;
+  }
+
+  const allPagesButton = event.target.closest("[data-download-all-crop-pages]");
+  if (allPagesButton) {
+    downloadAllCropPages();
+    return;
+  }
+
   const button = event.target.closest("[data-download-crop-page]");
   if (button) {
     downloadCropPage(Number(button.dataset.downloadCropPage));
+  }
+});
+els.generatePrompts.addEventListener("click", generatePromptTexts);
+els.editBenefits.addEventListener("click", toggleBenefitsEditing);
+els.resetPrompts.addEventListener("click", resetPromptBuilder);
+els.benefitOptions.addEventListener("change", updateSelectedBenefitsDisplay);
+els.promptsTab.addEventListener("click", (event) => {
+  const copyButton = event.target.closest("[data-copy-target]");
+  if (copyButton) {
+    copyPromptText(copyButton.dataset.copyTarget);
   }
 });
 window.addEventListener("resize", renderDropZones);
@@ -1323,3 +1799,4 @@ renderAssignments();
 drawRecipe();
 loadSavedCards();
 renderCropPages();
+renderBenefitOptions();
